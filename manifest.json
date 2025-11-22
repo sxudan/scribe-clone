@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Documentation Tool",
+  "version": "1.0.0",
+  "description": "Record user actions and generate step-by-step documentation guides",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Documentation Tool"
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  }
+}
+
