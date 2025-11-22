@@ -1,7 +1,7 @@
 // Popup UI controller with React and Supabase integration
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { StorageData, Step, ExportFormat, Message, MessageResponse } from './types';
+import { StorageData, Step, Message } from './types';
 import { authService } from './supabase/auth';
 import { documentService } from './supabase/documents';
 import { stepService } from './supabase/steps';
@@ -20,8 +20,7 @@ const App: React.FC = () => {
   const [currentDocument, setCurrentDocument] = useState<Document | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
-  const [showExportOptions, setShowExportOptions] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [showSaveOptions, setShowSaveOptions] = useState(false);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [savingDocument, setSavingDocument] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
@@ -112,9 +111,29 @@ const App: React.FC = () => {
     setCurrentDocument(null);
   };
 
-  const handleCreateNewDocument = () => {
+  const handleCreateNewDocument = async () => {
+    // Stop any ongoing recording first
+    if (isRecording) {
+      chrome.runtime.sendMessage({ action: 'stopRecording' } as Message);
+    }
+    
+    // Clear current document
     setCurrentDocument(null);
+    
+    // Clear steps from state
     setSteps([]);
+    
+    // Clear steps from chrome storage
+    await chrome.storage.local.set({ 
+      steps: [], 
+      isRecording: false,
+      startTime: undefined
+    } as StorageData);
+    
+    // Update UI state
+    setIsRecording(false);
+    
+    // Switch to recording view
     setView('recording');
   };
 
@@ -151,10 +170,11 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveDocument = async () => {
+  const handleSaveToSupabase = async () => {
     if (!user || steps.length === 0) return;
 
     setSavingDocument(true);
+    setShowSaveOptions(false);
     try {
       let docId = currentDocument?.id;
 
@@ -298,47 +318,6 @@ const App: React.FC = () => {
     await updateUI();
   };
 
-  // Export guide
-  const handleExport = async (format: ExportFormat) => {
-    setIsLoading(true);
-    setShowExportOptions(false);
-    
-    try {
-      const result = await chrome.storage.local.get(['steps']) as { steps?: Step[] };
-      const { steps: currentSteps } = result;
-      
-      if (!currentSteps || currentSteps.length === 0) {
-        alert('No steps to export');
-        setIsLoading(false);
-        return;
-      }
-      
-      chrome.runtime.sendMessage({ 
-        action: 'generateDocumentation', 
-        steps: currentSteps, 
-        format 
-      } as Message, (response: MessageResponse) => {
-        setIsLoading(false);
-        
-        if (response.success && response.content) {
-          const blob = new Blob([response.content], { type: 'text/plain' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          const extension = format === 'html' ? 'html' : format === 'markdown' ? 'md' : 'txt';
-          a.download = `documentation.${extension}`;
-          a.click();
-          URL.revokeObjectURL(url);
-        } else {
-          alert('Error generating documentation: ' + (response.error || 'Unknown error'));
-        }
-      });
-    } catch (error) {
-      setIsLoading(false);
-      const err = error as Error;
-      alert('Error: ' + err.message);
-    }
-  };
 
   // Export as .docx
   const handleExportDocx = async () => {
@@ -348,7 +327,7 @@ const App: React.FC = () => {
     }
 
     setIsExportingDocx(true);
-    setShowExportOptions(false);
+    setShowSaveOptions(false);
     
     try {
       const title = currentDocument?.title || `Documentation_${new Date().toISOString().split('T')[0]}`;
@@ -465,15 +444,58 @@ const App: React.FC = () => {
         </div>
 
         {/* Save Button */}
-        {steps.length > 0 && user && (
+        {steps.length > 0 && (
           <div className="mb-5">
             <button
-              onClick={handleSaveDocument}
-              disabled={savingDocument}
+              onClick={() => setShowSaveOptions(!showSaveOptions)}
+              disabled={savingDocument || isExportingDocx}
               className="w-full px-5 py-3 rounded-md text-sm font-medium text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {savingDocument ? 'Saving...' : currentDocument ? 'Save Changes' : 'Save Document'}
+              {savingDocument ? 'Saving...' : isExportingDocx ? 'Generating...' : 'Save Document'}
             </button>
+          </div>
+        )}
+        
+        {/* Save Options */}
+        {showSaveOptions && (
+          <div className="p-4 mb-5 bg-white rounded-lg shadow-sm">
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">Save Options</h3>
+            <div className="flex flex-col gap-2">
+              {user && (
+                <button
+                  onClick={handleSaveToSupabase}
+                  disabled={savingDocument}
+                  className="px-4 py-2.5 rounded-md text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                >
+                  {savingDocument ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      💾 Save
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={handleExportDocx}
+                disabled={isExportingDocx}
+                className="px-4 py-2.5 rounded-md text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {isExportingDocx ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    📄 Export as Word Document (.docx)
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -552,65 +574,8 @@ const App: React.FC = () => {
           >
             Clear Steps
           </button>
-          <button
-            onClick={() => setShowExportOptions(!showExportOptions)}
-            disabled={steps.length === 0}
-            className="flex-1 px-5 py-3 rounded-md text-sm font-medium text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Export Guide
-          </button>
         </div>
         
-        {/* Export Options */}
-        {showExportOptions && (
-          <div className="p-4 mb-5 bg-white rounded-lg shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">Export Format</h3>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={handleExportDocx}
-                disabled={isExportingDocx}
-                className="px-4 py-2.5 rounded-md text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-              >
-                {isExportingDocx ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    📄 Word Document (.docx)
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => handleExport('text')}
-                className="px-4 py-2.5 rounded-md text-sm text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 hover:border-blue-500 hover:text-blue-500 transition-colors"
-              >
-                Plain Text
-              </button>
-              <button
-                onClick={() => handleExport('markdown')}
-                className="px-4 py-2.5 rounded-md text-sm text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 hover:border-blue-500 hover:text-blue-500 transition-colors"
-              >
-                Markdown
-              </button>
-              <button
-                onClick={() => handleExport('html')}
-                className="px-4 py-2.5 rounded-md text-sm text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 hover:border-blue-500 hover:text-blue-500 transition-colors"
-              >
-                HTML
-              </button>
-            </div>
-          </div>
-        )}
-        
-        {/* Loading */}
-        {isLoading && (
-          <div className="text-center py-5">
-            <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm text-gray-600">Generating documentation...</p>
-          </div>
-        )}
       </div>
     </div>
   );

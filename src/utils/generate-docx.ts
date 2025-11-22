@@ -1,5 +1,5 @@
 // Generate .docx file from steps stored locally
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, AlignmentType, ExternalHyperlink } from 'docx';
 import { Step } from '../types';
 import { saveAs } from 'file-saver';
 
@@ -57,16 +57,11 @@ export async function generateAndDownloadDocx(steps: Step[], title: string = 'Do
       })
     );
 
-    // Action description (user-friendly)
+    // Action description (user-friendly) with clickable URLs
+    const descriptionChildren = createActionDescriptionWithLinks(actionDescription);
     children.push(
       new Paragraph({
-        children: [
-          new TextRun({
-            text: actionDescription,
-            bold: true,
-            size: 24,
-          }),
-        ],
+        children: descriptionChildren,
         spacing: { after: 300 },
       })
     );
@@ -197,6 +192,73 @@ function cleanText(text: string | null | undefined, maxLength: number = 50): str
     .substring(0, maxLength);       // Limit length
 }
 
+// Create action description with clickable hyperlinks for URLs
+function createActionDescriptionWithLinks(description: string): (TextRun | ExternalHyperlink)[] {
+  // Check if description contains a URL
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const matches = description.match(urlRegex);
+  
+  if (matches && matches.length > 0) {
+    // Split description by URL and create hyperlinks
+    const parts: (TextRun | ExternalHyperlink)[] = [];
+    let lastIndex = 0;
+    
+    for (const urlMatch of matches) {
+      // Add text before URL
+      const beforeText = description.substring(lastIndex, description.indexOf(urlMatch, lastIndex));
+      if (beforeText) {
+        parts.push(
+          new TextRun({
+            text: beforeText,
+            bold: true,
+            size: 24,
+          })
+        );
+      }
+      
+      // Add clickable hyperlink
+      parts.push(
+        new ExternalHyperlink({
+          children: [
+            new TextRun({
+              text: urlMatch,
+              bold: true,
+              size: 24,
+              color: '0563C1', // Blue color for links
+            }),
+          ],
+          link: urlMatch,
+        })
+      );
+      
+      lastIndex = description.indexOf(urlMatch, lastIndex) + urlMatch.length;
+    }
+    
+    // Add remaining text after last URL
+    const afterText = description.substring(lastIndex);
+    if (afterText) {
+      parts.push(
+        new TextRun({
+          text: afterText,
+          bold: true,
+          size: 24,
+        })
+      );
+    }
+    
+    return parts;
+  }
+  
+  // No URL found, return plain text
+  return [
+    new TextRun({
+      text: description,
+      bold: true,
+      size: 24,
+    }),
+  ];
+}
+
 // Get user-friendly action description (like Scribe format)
 function getActionDescription(step: Step, stepData: any): string {
   const el = stepData.element;
@@ -241,10 +303,18 @@ function getActionDescription(step: Step, stepData: any): string {
       return 'Submit the form';
     
     case 'navigation':
-      return `Navigate to ${step.url || 'the next page'}`;
+      if (step.url) {
+        return `Navigate to ${step.url}`;
+      }
+      return 'Navigate to the next page';
     
     case 'page_load':
-      return `Page loaded: ${step.title || step.url || 'New page'}`;
+      if (step.url) {
+        return `Navigate to ${step.url}`;
+      } else if (step.title) {
+        return `Page loaded: ${step.title}`;
+      }
+      return 'Page loaded';
     
     default:
       return 'Perform the action';
