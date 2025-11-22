@@ -16,14 +16,18 @@
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.38.5",
+    "docx": "^8.5.0",
+    "file-saver": "^2.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
+    "@types/file-saver": "^2.0.7",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "buffer": "^6.0.3",
     "autoprefixer": "^10.4.16",
     "copy-webpack-plugin": "^11.0.0",
     "css-loader": "^6.8.1",
@@ -31,10 +35,13 @@
     "dotenv-webpack": "^8.0.1",
     "postcss": "^8.4.32",
     "postcss-loader": "^7.3.3",
+    "process": "^0.11.10",
     "style-loader": "^3.3.3",
     "tailwindcss": "^3.3.6",
+    "stream-browserify": "^3.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
+    "util": "^0.12.5",
     "webpack": "^5.89.0",
     "webpack-cli": "^5.1.4"
   }

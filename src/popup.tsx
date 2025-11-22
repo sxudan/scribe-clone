@@ -8,6 +8,7 @@ import { stepService } from './supabase/steps';
 import { Document } from './supabase/types';
 import { Auth } from './components/Auth';
 import { DocumentList } from './components/DocumentList';
+import { generateAndDownloadDocx } from './utils/generate-docx';
 import './popup.css';
 
 type View = 'auth' | 'documents' | 'recording' | 'saving';
@@ -23,6 +24,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [savingDocument, setSavingDocument] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
 
   // Check auth state on mount
   useEffect(() => {
@@ -135,7 +137,8 @@ const App: React.FC = () => {
   const handleDeleteDocument = async (documentId: string) => {
     const { error } = await documentService.deleteDocument(documentId);
     if (error) {
-      alert('Error deleting document: ' + error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert('Error deleting document: ' + errorMessage);
     } else {
       if (user) {
         loadDocuments(user.id);
@@ -334,6 +337,27 @@ const App: React.FC = () => {
       setIsLoading(false);
       const err = error as Error;
       alert('Error: ' + err.message);
+    }
+  };
+
+  // Export as .docx
+  const handleExportDocx = async () => {
+    if (steps.length === 0) {
+      alert('No steps to export');
+      return;
+    }
+
+    setIsExportingDocx(true);
+    setShowExportOptions(false);
+    
+    try {
+      const title = currentDocument?.title || `Documentation_${new Date().toISOString().split('T')[0]}`;
+      await generateAndDownloadDocx(steps, title);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export document: ' + ((error as Error).message || 'Unknown error'));
+    } finally {
+      setIsExportingDocx(false);
     }
   };
 
@@ -542,6 +566,22 @@ const App: React.FC = () => {
           <div className="p-4 mb-5 bg-white rounded-lg shadow-sm">
             <h3 className="text-sm font-semibold text-gray-800 mb-3">Export Format</h3>
             <div className="flex flex-col gap-2">
+              <button
+                onClick={handleExportDocx}
+                disabled={isExportingDocx}
+                className="px-4 py-2.5 rounded-md text-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              >
+                {isExportingDocx ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    📄 Word Document (.docx)
+                  </>
+                )}
+              </button>
               <button
                 onClick={() => handleExport('text')}
                 className="px-4 py-2.5 rounded-md text-sm text-gray-800 bg-white border border-gray-300 hover:bg-gray-50 hover:border-blue-500 hover:text-blue-500 transition-colors"

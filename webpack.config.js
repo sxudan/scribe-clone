@@ -1,6 +1,7 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const Dotenv = require('dotenv-webpack');
+const webpack = require('webpack');
 
 module.exports = {
   entry: {
@@ -32,6 +33,12 @@ module.exports = {
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],
+    fallback: {
+      "buffer": require.resolve("buffer/"),
+      "stream": require.resolve("stream-browserify"),
+      "util": require.resolve("util/"),
+      "process": require.resolve("process/browser"),
+    },
   },
   plugins: [
     new Dotenv({
@@ -45,6 +52,10 @@ module.exports = {
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'icons', to: 'icons', noErrorOnMissing: true },
       ],
+    }),
+    new webpack.ProvidePlugin({
+      Buffer: ['buffer', 'Buffer'],
+      process: 'process/browser',
     }),
   ],
   watchOptions: {
