@@ -5,6 +5,7 @@ export type ActionType = 'click' | 'input' | 'change' | 'submit' | 'navigation' 
 export type ExportFormat = 'text' | 'markdown' | 'html';
 
 export interface ElementInfo {
+  // Basic identification
   tag: string;
   id: string | null;
   className: string | null;
@@ -14,14 +15,65 @@ export interface ElementInfo {
   placeholder: string | null;
   label: string | null;
   selector: string;
+  
+  // Position and dimensions for visualization
+  boundingBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    top: number;
+    left: number;
+    right: number;
+    bottom: number;
+  } | null;
+  
+  // Scroll position when element was interacted with
+  scrollPosition: {
+    x: number;
+    y: number;
+  };
+  
+  // Viewport dimensions
+  viewport: {
+    width: number;
+    height: number;
+  };
+  
+  // Additional attributes for better element identification
+  attributes: Record<string, string>;
+  
+  // Parent element info (for context)
+  parentSelector: string | null;
+  
+  // Element position in DOM tree
+  xpath: string | null;
 }
 
 export interface StepData {
   element?: ElementInfo;
-  coordinates?: { x: number; y: number };
+  // Click coordinates (always captured for clicks)
+  coordinates: {
+    x: number;
+    y: number;
+    // Relative to element
+    relativeX?: number;
+    relativeY?: number;
+    // Relative to viewport
+    viewportX: number;
+    viewportY: number;
+  } | null;
   value?: string | boolean;
   url?: string;
   title?: string;
+  // Page metadata
+  pageMetadata?: {
+    viewportWidth: number;
+    viewportHeight: number;
+    scrollX: number;
+    scrollY: number;
+    userAgent: string;
+  };
 }
 
 export interface Step {

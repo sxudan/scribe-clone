@@ -1,15 +1,50 @@
-// Popup UI controller with React
+// Popup UI controller with React and Supabase integration
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StorageData, Step, ExportFormat, Message, MessageResponse } from './types';
+import { authService } from './supabase/auth';
+import { documentService } from './supabase/documents';
+import { stepService } from './supabase/steps';
+import { Document } from './supabase/types';
+import { Auth } from './components/Auth';
+import { DocumentList } from './components/DocumentList';
 import './popup.css';
 
+type View = 'auth' | 'documents' | 'recording' | 'saving';
+
 const App: React.FC = () => {
+  const [view, setView] = useState<View>('auth');
+  const [user, setUser] = useState<any>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [currentDocument, setCurrentDocument] = useState<Document | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
+  const [savingDocument, setSavingDocument] = useState(false);
+
+  // Check auth state on mount
+  useEffect(() => {
+    checkAuth();
+    
+    // Listen for auth changes
+    const { data: { subscription } } = authService.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        setView('documents');
+        loadDocuments(session.user.id);
+      } else {
+        setUser(null);
+        setView('auth');
+        setDocuments([]);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Check current recording state
   const updateUI = async (): Promise<void> => {
@@ -20,20 +55,168 @@ const App: React.FC = () => {
 
   // Listen for step updates
   useEffect(() => {
-    updateUI();
-    
-    const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
-      if (areaName === 'local' && (changes.steps || changes.isRecording)) {
-        updateUI();
+    if (view === 'recording') {
+      updateUI();
+      
+      const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+        if (areaName === 'local' && (changes.steps || changes.isRecording)) {
+          updateUI();
+        }
+      };
+      
+      chrome.storage.onChanged.addListener(listener);
+      
+      return () => {
+        chrome.storage.onChanged.removeListener(listener);
+      };
+    }
+    return undefined;
+  }, [view]);
+
+  const checkAuth = async () => {
+    const { user } = await authService.getCurrentUser();
+    if (user) {
+      setUser(user);
+      setView('documents');
+      loadDocuments(user.id);
+    } else {
+      setView('auth');
+    }
+  };
+
+  const loadDocuments = async (userId: string) => {
+    const { data, error } = await documentService.getDocuments(userId);
+    if (error) {
+      console.error('Error loading documents:', error);
+    } else {
+      setDocuments(data || []);
+    }
+  };
+
+  const handleAuthSuccess = async () => {
+    const { user } = await authService.getCurrentUser();
+    if (user) {
+      setUser(user);
+      setView('documents');
+      loadDocuments(user.id);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await authService.signOut();
+    setUser(null);
+    setView('auth');
+    setDocuments([]);
+    setCurrentDocument(null);
+  };
+
+  const handleCreateNewDocument = () => {
+    setCurrentDocument(null);
+    setSteps([]);
+    setView('recording');
+  };
+
+  const handleSelectDocument = async (document: Document) => {
+    setCurrentDocument(document);
+    const { data, error } = await documentService.getDocumentWithSteps(document.id);
+    if (error) {
+      alert('Error loading document: ' + error.message);
+      return;
+    }
+    if (data) {
+      setSteps(data.steps);
+      setView('recording');
+    } else {
+      setSteps([]);
+      setView('recording');
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    const { error } = await documentService.deleteDocument(documentId);
+    if (error) {
+      alert('Error deleting document: ' + error.message);
+    } else {
+      if (user) {
+        loadDocuments(user.id);
       }
-    };
-    
-    chrome.storage.onChanged.addListener(listener);
-    
-    return () => {
-      chrome.storage.onChanged.removeListener(listener);
-    };
-  }, []);
+      if (currentDocument?.id === documentId) {
+        setCurrentDocument(null);
+        setSteps([]);
+        setView('documents');
+      }
+    }
+  };
+
+  const handleSaveDocument = async () => {
+    if (!user || steps.length === 0) return;
+
+    setSavingDocument(true);
+    try {
+      let docId = currentDocument?.id;
+
+      // Create document if it doesn't exist
+      if (!docId) {
+        const title = prompt('Enter document title:', `Document ${new Date().toLocaleDateString()}`);
+        if (!title) {
+          setSavingDocument(false);
+          return;
+        }
+
+        const { data: newDoc, error: createError } = await documentService.createDocument(
+          user.id,
+          title
+        );
+
+        if (createError || !newDoc) {
+          alert('Error creating document: ' + (createError?.message || 'Unknown error'));
+          setSavingDocument(false);
+          return;
+        }
+
+        docId = newDoc.id;
+        setCurrentDocument(newDoc);
+      }
+
+      // Save steps with screenshots
+      if (!docId) {
+        alert('Error: Document ID is missing');
+        setSavingDocument(false);
+        return;
+      }
+      
+      // Log steps before saving
+      console.log('Saving steps:', {
+        documentId: docId,
+        stepCount: steps.length,
+        stepsWithScreenshots: steps.filter(s => s.screenshot).length,
+        steps: steps.map(s => ({
+          id: s.id,
+          action: s.action,
+          hasScreenshot: !!s.screenshot,
+          screenshotLength: s.screenshot?.length || 0
+        }))
+      });
+      
+      const { error: stepsError } = await stepService.saveSteps(docId, steps);
+      if (stepsError) {
+        console.error('Error saving steps:', stepsError);
+        alert('Error saving steps: ' + stepsError.message);
+      } else {
+        console.log('Steps saved successfully');
+        alert('Document saved successfully!');
+        if (user) {
+          loadDocuments(user.id);
+        }
+        setView('documents');
+      }
+    } catch (error) {
+      console.error('Error saving document:', error);
+      alert('Error saving document');
+    } finally {
+      setSavingDocument(false);
+    }
+  };
 
   // Start recording
   const handleStartRecording = async () => {
@@ -54,7 +237,6 @@ const App: React.FC = () => {
             target: { tabId: tab.id },
             files: ['content.js']
           });
-          // Wait a bit for script to initialize
           await new Promise(resolve => setTimeout(resolve, 100));
         } else {
           alert('Cannot record on this page. Please navigate to a web page.');
@@ -68,7 +250,6 @@ const App: React.FC = () => {
         startTime: Date.now()
       } as StorageData);
       
-      // Send message to content script to start recording
       await chrome.tabs.sendMessage(tab.id, { action: 'startRecording' } as Message);
       if (chrome.runtime.lastError) {
         console.error('Error sending message:', chrome.runtime.lastError);
@@ -95,7 +276,6 @@ const App: React.FC = () => {
       
       await chrome.storage.local.set({ isRecording: false } as StorageData);
       
-      // Send message to content script to stop recording
       try {
         await chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' } as Message);
       } catch (error) {
@@ -130,7 +310,6 @@ const App: React.FC = () => {
         return;
       }
       
-      // Send to background script for processing
       chrome.runtime.sendMessage({ 
         action: 'generateDocumentation', 
         steps: currentSteps, 
@@ -139,7 +318,6 @@ const App: React.FC = () => {
         setIsLoading(false);
         
         if (response.success && response.content) {
-          // Download the file
           const blob = new Blob([response.content], { type: 'text/plain' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -159,8 +337,52 @@ const App: React.FC = () => {
     }
   };
 
+  // Render based on view
+  if (view === 'auth') {
+    return (
+      <div className="w-full max-w-md min-w-[320px] min-h-[400px] bg-gray-100 font-sans">
+        <Auth onAuthSuccess={handleAuthSuccess} />
+      </div>
+    );
+  }
+
+  if (view === 'documents') {
+    return (
+      <div className="w-full max-w-md min-w-[320px] min-h-[400px] bg-gray-100 font-sans">
+        <div className="p-3 bg-white border-b border-gray-200 flex justify-between items-center">
+          <span className="text-sm text-gray-600">{user?.email}</span>
+          <button
+            onClick={handleSignOut}
+            className="text-sm text-red-500 hover:text-red-600"
+          >
+            Sign Out
+          </button>
+        </div>
+        <DocumentList
+          documents={documents}
+          onSelectDocument={handleSelectDocument}
+          onCreateNew={handleCreateNewDocument}
+          onDeleteDocument={handleDeleteDocument}
+        />
+      </div>
+    );
+  }
+
+  // Recording view
   return (
     <div className="w-full max-w-md min-w-[320px] min-h-[400px] bg-gray-100 font-sans">
+      <div className="p-3 bg-white border-b border-gray-200 flex justify-between items-center">
+        <button
+          onClick={() => setView('documents')}
+          className="text-sm text-blue-500 hover:text-blue-600"
+        >
+          ← Back to Documents
+        </button>
+        {currentDocument && (
+          <span className="text-sm text-gray-600 truncate max-w-[200px]">{currentDocument.title ?? 'Untitled'}</span>
+        )}
+      </div>
+
       <div className="p-5">
         {/* Header */}
         <div className="mb-5 text-center">
@@ -217,6 +439,19 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Save Button */}
+        {steps.length > 0 && user && (
+          <div className="mb-5">
+            <button
+              onClick={handleSaveDocument}
+              disabled={savingDocument}
+              className="w-full px-5 py-3 rounded-md text-sm font-medium text-white bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {savingDocument ? 'Saving...' : currentDocument ? 'Save Changes' : 'Save Document'}
+            </button>
+          </div>
+        )}
 
         {/* Steps List */}
         {steps.length > 0 && (
@@ -347,4 +582,3 @@ if (container) {
   const root = createRoot(container);
   root.render(<App />);
 }
-

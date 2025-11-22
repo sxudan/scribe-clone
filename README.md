@@ -24,7 +24,12 @@ A Chrome extension that records user actions on webpages and automatically conve
    ```bash
    npm install
    ```
-3. Build the extension:
+3. Configure Supabase (see [Supabase Setup Guide](./SUPABASE_SETUP.md)):
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your Supabase credentials
+   ```
+4. Build the extension:
    ```bash
    npm run build
    ```

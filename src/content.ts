@@ -71,7 +71,20 @@ function startRecording(): void {
   // Capture initial page state
   captureStep('page_load', {
     url: window.location.href,
-    title: document.title
+    title: document.title,
+    pageMetadata: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      userAgent: navigator.userAgent
+    },
+    coordinates: {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+      viewportX: window.innerWidth / 2,
+      viewportY: window.innerHeight / 2
+    }
   });
 }
 
@@ -92,11 +105,30 @@ function handleClick(event: MouseEvent): void {
   if (!isRecording) return;
   
   const target = event.target as HTMLElement;
-  const elementInfo = getElementInfo(target);
+  const elementInfo = getElementInfo(target, event);
+  
+  // Calculate relative coordinates
+  const rect = target.getBoundingClientRect();
+  const relativeX = event.clientX - rect.left;
+  const relativeY = event.clientY - rect.top;
   
   captureStep('click', {
     element: elementInfo,
-    coordinates: { x: event.clientX, y: event.clientY }
+    coordinates: {
+      x: event.clientX,
+      y: event.clientY,
+      relativeX,
+      relativeY,
+      viewportX: event.clientX,
+      viewportY: event.clientY
+    },
+    pageMetadata: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      userAgent: navigator.userAgent
+    }
   });
 }
 
@@ -104,7 +136,8 @@ function handleInput(event: Event): void {
   if (!isRecording) return;
   
   const target = event.target as HTMLInputElement | HTMLTextAreaElement;
-  const elementInfo = getElementInfo(target);
+  const mouseEvent = event as unknown as MouseEvent;
+  const elementInfo = getElementInfo(target, mouseEvent);
   
   // Only capture on blur to avoid too many steps
   if (event.type === 'input') {
@@ -114,9 +147,25 @@ function handleInput(event: Event): void {
       clearTimeout(extendedTarget._inputTimeout);
     }
     extendedTarget._inputTimeout = window.setTimeout(() => {
+      const rect = target.getBoundingClientRect();
       captureStep('input', {
         element: elementInfo,
-        value: target.value.substring(0, 100) // Limit value length
+        coordinates: {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          relativeX: rect.width / 2,
+          relativeY: rect.height / 2,
+          viewportX: rect.left + rect.width / 2,
+          viewportY: rect.top + rect.height / 2
+        },
+        value: target.value.substring(0, 100), // Limit value length
+        pageMetadata: {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          scrollX: window.scrollX,
+          scrollY: window.scrollY,
+          userAgent: navigator.userAgent
+        }
       });
     }, 500);
   }
@@ -126,15 +175,32 @@ function handleChange(event: Event): void {
   if (!isRecording) return;
   
   const target = event.target as HTMLInputElement | HTMLSelectElement;
-  const elementInfo = getElementInfo(target);
+  const mouseEvent = event as unknown as MouseEvent;
+  const elementInfo = getElementInfo(target, mouseEvent);
   
   const value = target instanceof HTMLInputElement && target.type === 'checkbox' 
     ? target.checked 
     : target.value;
   
+  const rect = target.getBoundingClientRect();
   captureStep('change', {
     element: elementInfo,
-    value: value
+    coordinates: {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      relativeX: rect.width / 2,
+      relativeY: rect.height / 2,
+      viewportX: rect.left + rect.width / 2,
+      viewportY: rect.top + rect.height / 2
+    },
+    value: value,
+    pageMetadata: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      userAgent: navigator.userAgent
+    }
   });
 }
 
@@ -142,10 +208,27 @@ function handleSubmit(event: Event): void {
   if (!isRecording) return;
   
   const target = event.target as HTMLFormElement;
-  const elementInfo = getElementInfo(target);
+  const mouseEvent = event as unknown as MouseEvent;
+  const elementInfo = getElementInfo(target, mouseEvent);
   
+  const rect = target.getBoundingClientRect();
   captureStep('submit', {
-    element: elementInfo
+    element: elementInfo,
+    coordinates: {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      relativeX: rect.width / 2,
+      relativeY: rect.height / 2,
+      viewportX: rect.left + rect.width / 2,
+      viewportY: rect.top + rect.height / 2
+    },
+    pageMetadata: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      userAgent: navigator.userAgent
+    }
   });
 }
 
@@ -154,11 +237,42 @@ function handleNavigation(): void {
   
   captureStep('navigation', {
     url: window.location.href,
-    title: document.title
+    title: document.title,
+    pageMetadata: {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      userAgent: navigator.userAgent
+    },
+    coordinates: {
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+      viewportX: window.innerWidth / 2,
+      viewportY: window.innerHeight / 2
+    }
   });
 }
 
-function getElementInfo(element: HTMLElement): ElementInfo {
+function getElementInfo(element: HTMLElement, _event?: MouseEvent): ElementInfo {
+  const rect = element.getBoundingClientRect();
+  
+  // Get all attributes
+  const attributes: Record<string, string> = {};
+  if (element.attributes) {
+    for (let i = 0; i < element.attributes.length; i++) {
+      const attr = element.attributes[i];
+      attributes[attr.name] = attr.value;
+    }
+  }
+  
+  // Get parent selector
+  const parent = element.parentElement;
+  const parentSelector = parent ? generateSelector(parent) : null;
+  
+  // Generate XPath
+  const xpath = generateXPath(element);
+  
   const info: ElementInfo = {
     tag: element.tagName.toLowerCase(),
     id: element.id || null,
@@ -168,10 +282,65 @@ function getElementInfo(element: HTMLElement): ElementInfo {
     text: element.textContent?.trim().substring(0, 50) || null,
     placeholder: (element as HTMLInputElement).placeholder || null,
     label: getLabel(element) || null,
-    selector: generateSelector(element)
+    selector: generateSelector(element),
+    boundingBox: {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom
+    },
+    scrollPosition: {
+      x: window.scrollX,
+      y: window.scrollY
+    },
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight
+    },
+    attributes,
+    parentSelector,
+    xpath
   };
   
   return info;
+}
+
+function generateXPath(element: HTMLElement): string {
+  if (element.id) {
+    return `//*[@id="${element.id}"]`;
+  }
+  
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+  
+  while (current && current.nodeType === Node.ELEMENT_NODE) {
+    let index = 1;
+    let sibling = current.previousElementSibling;
+    
+    while (sibling) {
+      if (sibling.tagName === current.tagName) {
+        index++;
+      }
+      sibling = sibling.previousElementSibling;
+    }
+    
+    const tagName = current.tagName.toLowerCase();
+    const xpathIndex = index > 1 ? `[${index}]` : '';
+    parts.unshift(`${tagName}${xpathIndex}`);
+    
+    current = current.parentElement;
+    
+    // Stop at body
+    if (current?.tagName === 'BODY') {
+      break;
+    }
+  }
+  
+  return '/' + parts.join('/');
 }
 
 function getLabel(element: HTMLElement): string | null {

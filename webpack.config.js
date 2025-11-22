@@ -1,5 +1,6 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const Dotenv = require('dotenv-webpack');
 
 module.exports = {
   entry: {
@@ -33,6 +34,11 @@ module.exports = {
     extensions: ['.ts', '.tsx', '.js'],
   },
   plugins: [
+    new Dotenv({
+      path: './.env',
+      safe: false, // Set to true to use .env.example
+      systemvars: true, // Load system environment variables
+    }),
     new CopyWebpackPlugin({
       patterns: [
         { from: 'popup.html', to: 'popup.html' },

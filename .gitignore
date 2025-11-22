@@ -29,3 +29,7 @@ node_modules/
 
 # TypeScript
 *.tsbuildinfo
+
+# SQL files
+*.sql
+src/supabase/schema.sql
