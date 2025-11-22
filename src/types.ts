@@ -90,6 +90,7 @@ export interface StorageData {
   isRecording?: boolean;
   steps?: Step[];
   startTime?: number;
+  recordingTabId?: number;
 }
 
 export interface Message {
@@ -106,5 +107,6 @@ export interface MessageResponse {
   error?: string;
   screenshot?: string | null;
   steps?: Step[];
+  tabId?: number | null;
 }
 

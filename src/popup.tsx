@@ -127,7 +127,8 @@ const App: React.FC = () => {
     await chrome.storage.local.set({ 
       steps: [], 
       isRecording: false,
-      startTime: undefined
+      startTime: undefined,
+      recordingTabId: undefined
     } as StorageData);
     
     // Update UI state
@@ -270,7 +271,8 @@ const App: React.FC = () => {
       await chrome.storage.local.set({ 
         isRecording: true, 
         steps: [],
-        startTime: Date.now()
+        startTime: Date.now(),
+        recordingTabId: tab.id
       } as StorageData);
       
       await chrome.tabs.sendMessage(tab.id, { action: 'startRecording' } as Message);

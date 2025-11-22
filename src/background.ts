@@ -22,16 +22,43 @@ chrome.runtime.onMessage.addListener((
 ): boolean => {
   if (message.action === 'captureScreenshot') {
     if (sender.tab?.id) {
-      captureScreenshot(sender.tab.id)
-        .then(screenshot => {
-          sendResponse({ screenshot });
-        })
-        .catch(error => {
-          console.error('Screenshot error:', error);
+      const tabId = sender.tab.id;
+      // Check if this is the recording tab
+      chrome.storage.local.get(['recordingTabId'], (result) => {
+        if (result.recordingTabId && result.recordingTabId !== tabId) {
+          console.log('Ignoring screenshot - not the recording tab');
           sendResponse({ screenshot: null });
-        });
+          return;
+        }
+        
+        captureScreenshot(tabId)
+          .then(screenshot => {
+            sendResponse({ screenshot });
+          })
+          .catch(error => {
+            console.error('Screenshot error:', error);
+            sendResponse({ screenshot: null });
+          });
+      });
     } else {
       sendResponse({ screenshot: null });
+    }
+    return true; // Keep channel open for async response
+  }
+  
+  if (message.action === 'getCurrentTabId') {
+    // Get the current tab ID from the sender
+    if (sender.tab?.id) {
+      sendResponse({ tabId: sender.tab.id });
+    } else {
+      // Fallback: query for active tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          sendResponse({ tabId: tabs[0].id });
+        } else {
+          sendResponse({ tabId: null });
+        }
+      });
     }
     return true; // Keep channel open for async response
   }
@@ -63,16 +90,57 @@ chrome.runtime.onMessage.addListener((
   return false;
 });
 
-async function captureScreenshot(_tabId: number): Promise<string | null> {
+async function captureScreenshot(tabId: number): Promise<string | null> {
   try {
-    const dataUrl = await chrome.tabs.captureVisibleTab({
+    // First, ensure the tab is active/visible
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab) {
+      console.error('Tab not found:', tabId);
+      return null;
+    }
+    
+    // Check if tab is active in its window
+    if (!tab.active) {
+      console.warn('Tab is not active, attempting to activate it');
+      try {
+        await chrome.tabs.update(tabId, { active: true });
+        // Wait a bit for the tab to become active
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (updateError) {
+        console.warn('Could not activate tab:', updateError);
+        // Continue anyway - might still work
+      }
+    }
+    
+    // Get the window ID to ensure we capture from the correct window
+    const windowId = tab.windowId;
+    
+    // Use captureVisibleTab with windowId to capture from the correct window
+    // Note: captureVisibleTab captures the active tab in the specified window
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
       format: 'png',
       quality: 80
     });
+    
+    if (!dataUrl) {
+      console.error('Screenshot returned empty');
+      return null;
+    }
+    
     return dataUrl;
   } catch (error) {
     console.error('Failed to capture screenshot:', error);
-    return null;
+    // Try fallback: capture without windowId
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab({
+        format: 'png',
+        quality: 80
+      });
+      return dataUrl;
+    } catch (fallbackError) {
+      console.error('Fallback screenshot capture also failed:', fallbackError);
+      return null;
+    }
   }
 }
 
